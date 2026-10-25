@@ -201,7 +201,8 @@ object SubtitleCodec {
     // ---------- Writing ----------
 
     fun write(cues: List<Cue>, format: SubtitleFormat, title: String = "Subtitles"): String {
-        val list = cues.sortedBy { it.startMs }
+        // Empty subtitle boxes are never written out.
+        val list = cues.filter { it.text.isNotBlank() }.sortedBy { it.startMs }
         return when (format) {
             SubtitleFormat.SRT -> list.mapIndexed { i, c ->
                 "${i + 1}\n${formatTime(c.startMs)} --> ${formatTime(c.endMs)}\n${c.text}\n"

@@ -75,6 +75,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    val dub = DubController(app, player, viewModelScope) { _messages.tryEmit(it) }
+
     /** Index of the cue active at the current playback position, or -1. */
     val activeIndex: StateFlow<Int> =
         combine(_position, _state.map { it.cues }.distinctUntilChanged()) { pos, cues ->
@@ -102,7 +104,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun say(msg: String) { _messages.tryEmit(msg) }
+    fun say(msg: String) { _messages.tryEmit(msg) }
 
     // ---------- Project lifecycle ----------
 
@@ -170,6 +172,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun exitEditor() {
+        dub.exit()
         viewModelScope.launch {
             saveJob?.cancel()
             saveNow()
@@ -301,8 +304,14 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val s = _state.value
+                val n = s.cues.count { it.text.isNotBlank() }
+                val skipped = s.cues.size - n
+                if (n == 0) {
+                    say("Nothing to export: every cue is empty")
+                    return@launch
+                }
                 repo.writeText(uri, SubtitleCodec.write(s.cues, format, s.name))
-                say("Exported ${s.cues.size} cues as .${format.ext}")
+                say("Exported $n cues as .${format.ext}" + if (skipped > 0) " ($skipped empty skipped)" else "")
             } catch (e: Exception) {
                 say("Export failed: ${e.message}")
             }
@@ -356,7 +365,17 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun enterDub() {
+        if (_state.value.videoUri == null) {
+            say("Load a video first to use the dubbing studio")
+            return
+        }
+        flushSave()
+        dub.enter(_state.value.projectId)
+    }
+
     override fun onCleared() {
+        dub.release()
         player.release()
         super.onCleared()
     }

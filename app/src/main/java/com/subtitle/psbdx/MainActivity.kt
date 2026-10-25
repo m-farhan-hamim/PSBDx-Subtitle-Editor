@@ -19,6 +19,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        vm.dub.stop()
         vm.pause()
         vm.flushSave()
         super.onStop()

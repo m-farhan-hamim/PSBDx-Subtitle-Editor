@@ -3,6 +3,7 @@ package com.subtitle.psbdx.ui
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -53,6 +54,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -96,7 +98,7 @@ import java.util.Date
 
 private val HTML_TAG = Regex("<[^>]+>")
 
-private fun shortTime(ms: Long): String {
+internal fun shortTime(ms: Long): String {
     val t = ms.coerceAtLeast(0) / 1000
     val h = t / 3600
     val m = (t / 60) % 60
@@ -109,7 +111,12 @@ fun AppRoot(vm: EditorViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.messages.collect { snack.showSnackbar(it) } }
-    if (state.inEditor) EditorScreen(vm, snack) else HomeScreen(vm, snack)
+    val dub by vm.dub.state.collectAsStateWithLifecycle()
+    when {
+        dub.mode -> DubScreen(vm, snack)
+        state.inEditor -> EditorScreen(vm, snack)
+        else -> HomeScreen(vm, snack)
+    }
 }
 
 // ======================= Home =======================
@@ -227,6 +234,9 @@ fun EditorScreen(vm: EditorViewModel, snack: SnackbarHostState) {
                                     onClick = { menuOpen = false; vm.setWriteThrough(!state.writeThrough) },
                                 )
                             }
+                            DropdownMenuItem(text = { Text("Dubbing studio…") }, onClick = {
+                                menuOpen = false; vm.enterDub()
+                            })
                             DropdownMenuItem(text = { Text("Close project") }, onClick = {
                                 menuOpen = false; vm.exitEditor()
                             })
@@ -298,7 +308,7 @@ fun EditorScreen(vm: EditorViewModel, snack: SnackbarHostState) {
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun VideoPane(vm: EditorViewModel, hasVideo: Boolean, activeCue: Cue?, onPickVideo: () -> Unit) {
+internal fun VideoPane(vm: EditorViewModel, hasVideo: Boolean, activeCue: Cue?, onPickVideo: () -> Unit) {
     val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val sizeMod = if (imeOpen) Modifier.height(110.dp) else Modifier.aspectRatio(16f / 9f)
     Box(Modifier.fillMaxWidth().then(sizeMod).background(Color.Black)) {
@@ -332,7 +342,7 @@ private fun VideoPane(vm: EditorViewModel, hasVideo: Boolean, activeCue: Cue?, o
 }
 
 @Composable
-private fun PlayerControls(vm: EditorViewModel) {
+internal fun PlayerControls(vm: EditorViewModel) {
     val pos by vm.position.collectAsStateWithLifecycle()
     val dur by vm.duration.collectAsStateWithLifecycle()
     val playing by vm.isPlaying.collectAsStateWithLifecycle()
@@ -445,14 +455,19 @@ private fun CueRow(
     onFocusChange: (Boolean) -> Unit,
     onFocusConsumed: () -> Unit,
 ) {
-    val container = when {
-        active -> MaterialTheme.colorScheme.primaryContainer
-        selected -> MaterialTheme.colorScheme.secondaryContainer
-        else -> MaterialTheme.colorScheme.surfaceVariant
+    // Fixed container/content pair so text never loses contrast; state is shown with a border instead.
+    val border = when {
+        active -> BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        selected -> BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+        else -> null
     }
     Card(
         onClick = onTap,
-        colors = CardDefaults.cardColors(containerColor = container),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        border = border,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
         Column(Modifier.padding(10.dp)) {
@@ -478,7 +493,18 @@ private fun CueRow(
                 value = text,
                 onValueChange = { text = it; onText(it) },
                 placeholder = { Text("Subtitle text") },
-                textStyle = MaterialTheme.typography.bodyMedium,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focusRequester)
@@ -517,7 +543,7 @@ private fun TimeField(ms: Long, modifier: Modifier, onCommit: (Long) -> Unit) {
                 if (focused && !it.isFocused) commit()
                 focused = it.isFocused
             }
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 6.dp),
     )
 }
