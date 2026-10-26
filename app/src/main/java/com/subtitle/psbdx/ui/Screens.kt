@@ -68,6 +68,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,13 +110,17 @@ internal fun shortTime(ms: Long): String {
 @Composable
 fun AppRoot(vm: EditorViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val studio by vm.studio.state.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
+    var showSplash by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(Unit) { vm.messages.collect { snack.showSnackbar(it) } }
-    val dub by vm.dub.state.collectAsStateWithLifecycle()
-    when {
-        dub.mode -> DubScreen(vm, snack)
-        state.inEditor -> EditorScreen(vm, snack)
-        else -> HomeScreen(vm, snack)
+    Box(Modifier.fillMaxSize()) {
+        when {
+            studio.mode -> StudioScreen(vm, snack)
+            state.inEditor -> EditorScreen(vm, snack)
+            else -> HomeScreen(vm, snack)
+        }
+        if (showSplash) SplashOverlay { showSplash = false }
     }
 }
 

@@ -8,7 +8,10 @@ Professional subtitle editing and live preview for Android. Package: `com.subtit
 - Two-way sync: playback auto-scrolls/highlights the active cue; tapping a cue seeks the video
 - Media3 ExoPlayer preview with live subtitle overlay
 - Cue editor with live text editing, editable timestamps, nudge buttons, and one-tap **Mark** to create cues from scratch
-- **Dubbing studio**: video plays muted with subtitles while you record a voice-over (3-2-1 countdown), replay takes in sync, save as `.m4a`
+- **Dubbing studio**: muted video + subtitles, 3-2-1 countdown, punch-in recording over an In/Out range, live loudness/pitch/spectrum visualizer, guide audio
+- **Audio editor**: waveform timeline (original + dub track + subtitles), replace/mute ranges, split/trim/move clips, gain, undo/redo, real-time mix preview
+- Export the mix as `.mp4` (original video + new audio, no video re-encode), `.m4a` or `.wav`
+- Branded splash screen
 - Empty cues are skipped on export
 - Room-backed projects with debounced auto-save (optional write-through to the opened subtitle file)
 

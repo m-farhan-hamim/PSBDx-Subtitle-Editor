@@ -16,6 +16,7 @@ import com.subtitle.psbdx.data.ProjectRepository
 import com.subtitle.psbdx.domain.Cue
 import com.subtitle.psbdx.domain.SubtitleCodec
 import com.subtitle.psbdx.domain.SubtitleFormat
+import com.subtitle.psbdx.studio.StudioController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -75,7 +76,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
-    val dub = DubController(app, player, viewModelScope) { _messages.tryEmit(it) }
+    val studio = StudioController(app, player, viewModelScope) { _messages.tryEmit(it) }
 
     /** Index of the cue active at the current playback position, or -1. */
     val activeIndex: StateFlow<Int> =
@@ -172,7 +173,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun exitEditor() {
-        dub.exit()
+        studio.exit()
         viewModelScope.launch {
             saveJob?.cancel()
             saveNow()
@@ -365,17 +366,23 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Seek used by the studio timeline: keeps preview playback in sync and updates the playhead. */
+    fun studioSeek(ms: Long) {
+        studio.seek(ms)
+        _position.value = ms.coerceAtLeast(0)
+    }
+
     fun enterDub() {
         if (_state.value.videoUri == null) {
             say("Load a video first to use the dubbing studio")
             return
         }
         flushSave()
-        dub.enter(_state.value.projectId)
+        studio.enter(_state.value.projectId, _state.value.videoUri)
     }
 
     override fun onCleared() {
-        dub.release()
+        studio.release()
         player.release()
         super.onCleared()
     }
