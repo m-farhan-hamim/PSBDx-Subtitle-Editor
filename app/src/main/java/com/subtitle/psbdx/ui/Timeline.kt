@@ -25,7 +25,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -175,7 +174,7 @@ fun Timeline(
             if (bw > 36f && c.text.isNotBlank()) {
                 clipRect(a, subsTop, a + bw, subsTop + subsH) {
                     drawText(
-                        tm, c.text.replace('\n', ' '), Offset(a + 3f, subsTop + 5f),
+                        tm, c.text.replace('\n', ' '), Offset(max(a, 0f) + 3f, subsTop + 5f),
                         TextStyle(fontSize = 10.sp, color = cs.onTertiaryContainer), softWrap = false, maxLines = 1,
                     )
                 }
@@ -219,7 +218,7 @@ fun Timeline(
                         c.srcStartMs + (scroll + px * 1000f / pps - c.startMs)
                     }
                 }
-                drawText(tm, "Take ${c.id}", Offset(a + 6f, dubTop + 6f), TextStyle(fontSize = 10.sp, color = cs.onPrimaryContainer))
+                drawText(tm, "Take ${c.id}", Offset(max(a, 0f) + 6f, dubTop + 6f), TextStyle(fontSize = 10.sp, color = cs.onPrimaryContainer))
             }
             if (c.id == st.selClip) {
                 drawRoundRect(cs.primary, Offset(a, dubTop + 3f), Size(max(2f, b - a), trackH - 6f), CornerRadius(8f, 8f), style = Stroke(width = 4f))

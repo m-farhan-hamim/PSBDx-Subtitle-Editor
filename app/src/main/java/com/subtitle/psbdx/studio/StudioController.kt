@@ -1,8 +1,13 @@
 package com.subtitle.psbdx.studio
 
 import android.app.Application
+import android.content.Context
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.Uri
 import android.os.SystemClock
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +36,8 @@ enum class ExportKind(val label: String, val ext: String, val mime: String) {
     WAV("Mixed audio, lossless (.wav)", "wav", "audio/x-wav"),
 }
 
+data class AudioDev(val id: Int, val name: String, val type: Int)
+
 data class StudioState(
     val mode: Boolean = false,
     val tab: Int = 0,
@@ -41,7 +48,10 @@ data class StudioState(
     val countdown: Int = 0,
     val elapsedMs: Long = 0,
     val monitor: Boolean = false,
-    val guide: Boolean = false,
+    val inputId: Int? = null,
+    val outputId: Int? = null,
+    val inputs: List<AudioDev> = emptyList(),
+    val outputs: List<AudioDev> = emptyList(),
     val clips: List<Clip> = emptyList(),
     val mutes: List<MsRange> = emptyList(),
     val origGain: Float = 1f,
@@ -91,6 +101,9 @@ class StudioController(
     private val _clipPeaks = MutableStateFlow<Map<String, FloatArray>>(emptyMap())
     val clipPeaks: StateFlow<Map<String, FloatArray>> = _clipPeaks.asStateFlow()
 
+    private val am = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var scoOn = false
+    private var callbackRegistered = false
     private var dir: File? = null
     private var videoUri: String? = null
     private var nextClipId = 1L
@@ -131,6 +144,7 @@ class StudioController(
         redoStack.clear()
         player.pause()
         player.volume = 0f
+        setPlayerAudioDisabled(true)
         _origPeaks.value = FloatArray(0)
         _clipPeaks.value = emptyMap()
         _visual.value = VisualState()
@@ -140,6 +154,7 @@ class StudioController(
             clips = loaded.clips, mutes = loaded.mutes, origGain = loaded.origGain,
         )
         loaded.clips.forEach { ensurePeaks(it.file) }
+        registerDevices()
         prepJob?.cancel()
         prepJob = scope.launch { prepareOriginal() }
     }
@@ -150,13 +165,16 @@ class StudioController(
         saveNow()
         prepJob?.cancel()
         player.pause()
+        setPlayerAudioDisabled(false)
         player.volume = 1f
+        unregisterDevices()
         _state.value = StudioState()
         _visual.value = VisualState()
     }
 
     fun release() {
         stopAll()
+        unregisterDevices()
         saveNow()
     }
 
@@ -202,6 +220,110 @@ class StudioController(
         if (!ok) say("Couldn't read this video's audio. You can still record dub tracks.")
     }
 
+    // ---------------------------------------------------------------- audio devices
+
+    private fun setPlayerAudioDisabled(disabled: Boolean) {
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, disabled).build()
+    }
+
+    private val deviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { refreshDevices() }
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { refreshDevices() }
+    }
+
+    private fun registerDevices() {
+        if (!callbackRegistered) {
+            am.registerAudioDeviceCallback(deviceCallback, null)
+            callbackRegistered = true
+        }
+        refreshDevices()
+    }
+
+    private fun unregisterDevices() {
+        if (callbackRegistered) {
+            am.unregisterAudioDeviceCallback(deviceCallback)
+            callbackRegistered = false
+        }
+    }
+
+    private fun deviceLabel(d: AudioDeviceInfo): String {
+        val kind = when (d.type) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Bluetooth"
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Bluetooth (call mode)"
+            AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER -> "Bluetooth LE"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Wired headset"
+            AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET -> "USB"
+            AudioDeviceInfo.TYPE_HEARING_AID -> "Hearing aid"
+            else -> "Audio device"
+        }
+        val n = d.productName?.toString().orEmpty()
+        return if (n.isBlank()) kind else "$kind · $n"
+    }
+
+    fun refreshDevices() {
+        val outKinds = setOf(
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_HEARING_AID,
+        )
+        val inKinds = setOf(
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET,
+        )
+        val outs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).filter { it.type in outKinds }
+            .map { AudioDev(it.id, deviceLabel(it), it.type) }
+        val ins = am.getDevices(AudioManager.GET_DEVICES_INPUTS).filter { it.type in inKinds }
+            .map { AudioDev(it.id, deviceLabel(it), it.type) }
+        _state.update { s ->
+            s.copy(
+                inputs = ins, outputs = outs,
+                inputId = s.inputId?.takeIf { id -> ins.any { it.id == id } },
+                outputId = s.outputId?.takeIf { id -> outs.any { it.id == id } },
+            )
+        }
+    }
+
+    fun selectInput(id: Int?) {
+        if (_state.value.phase != DubPhase.Idle) return
+        val wasMonitoring = _state.value.monitor
+        if (wasMonitoring) stopMonitor()
+        _state.update { it.copy(inputId = id) }
+        if (wasMonitoring) toggleMonitor()
+    }
+
+    fun selectOutput(id: Int?) = _state.update { it.copy(outputId = id) }
+
+    /** The chosen microphone, or the phone's built-in one so a connected headset mic is never used by accident. */
+    private fun inputDevice(): AudioDeviceInfo? {
+        val all = am.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        val id = _state.value.inputId
+        return (if (id != null) all.firstOrNull { it.id == id } else null)
+            ?: all.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
+    }
+
+    private fun outputDevice(): AudioDeviceInfo? {
+        val id = _state.value.outputId ?: return null
+        return am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == id }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun startScoIfNeeded() {
+        val d = inputDevice()
+        if (d != null && d.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO && !scoOn) {
+            try { am.startBluetoothSco(); scoOn = true } catch (_: Exception) {}
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun stopSco() {
+        if (scoOn) {
+            try { am.stopBluetoothSco() } catch (_: Exception) {}
+            scoOn = false
+        }
+    }
+
     // ---------------------------------------------------------------- tabs / selection
 
     fun setTab(tab: Int) = _state.update { it.copy(tab = tab) }
@@ -226,7 +348,6 @@ class StudioController(
 
     fun clearRange() = _state.update { it.copy(inMs = null, outMs = null) }
 
-    fun toggleGuide() = _state.update { it.copy(guide = !it.guide) }
 
     // ---------------------------------------------------------------- mic monitor + recording
 
@@ -248,7 +369,8 @@ class StudioController(
         if (_state.value.monitor) {
             stopMonitor()
         } else {
-            val err = mic.start(null)
+            startScoIfNeeded()
+            val err = mic.start(null, inputDevice())
             if (err != null) say(err) else _state.update { it.copy(monitor = true) }
         }
     }
@@ -256,6 +378,7 @@ class StudioController(
     private fun stopMonitor() {
         if (_state.value.monitor) {
             mic.stop()
+            stopSco()
             _state.update { it.copy(monitor = false) }
             _visual.value = VisualState()
         }
@@ -285,7 +408,8 @@ class StudioController(
                 return@launch
             }
             val file = File(d, "take_${System.currentTimeMillis()}.wav")
-            val err = mic.start(file)
+            startScoIfNeeded()
+            val err = mic.start(file, inputDevice())
             if (err != null) {
                 say(err)
                 _state.update { it.copy(phase = DubPhase.Idle, countdown = 0) }
@@ -296,7 +420,7 @@ class StudioController(
             player.volume = 0f
             player.seekTo(startMs)
             player.play()
-            if (_state.value.guide) startGuide(startMs)
+            if (_state.value.outputId != null) startGuide(startMs)
             _state.update { it.copy(phase = DubPhase.Recording, countdown = 0, elapsedMs = 0) }
             val t0 = SystemClock.elapsedRealtime()
             while (isActive) {
@@ -329,6 +453,7 @@ class StudioController(
         player.pause()
         stopGuide()
         val samples = mic.stop()
+        stopSco()
         val file = recFile
         recFile = null
         _visual.value = VisualState()
@@ -376,7 +501,7 @@ class StudioController(
         val total = totalMs(false)
         var startMs = pos()
         if (startMs >= total - 200) startMs = 0
-        val eng = PlayEngine(newMixer(), Wav.msToSamples(startMs), Wav.msToSamples(total), true, true, true) {
+        val eng = PlayEngine(newMixer(), Wav.msToSamples(startMs), Wav.msToSamples(total), true, true, true, outputDevice()) {
             scope.launch { stopPreview() }
         }
         engine = eng
@@ -399,7 +524,9 @@ class StudioController(
 
     private fun startGuide(fromMs: Long) {
         stopGuide()
-        val eng = PlayEngine(newMixer(), Wav.msToSamples(fromMs), Wav.msToSamples(totalMs(false)), true, false, false) {}
+        // Original audio is only ever played on an explicitly chosen output device (never the phone speaker).
+        val dev = outputDevice() ?: return
+        val eng = PlayEngine(newMixer(), Wav.msToSamples(fromMs), Wav.msToSamples(totalMs(false)), true, false, false, dev) {}
         guideEngine = eng
         eng.start()
     }

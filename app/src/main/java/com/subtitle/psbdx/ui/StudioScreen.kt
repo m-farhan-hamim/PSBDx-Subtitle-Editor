@@ -28,6 +28,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -58,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -167,7 +170,8 @@ fun StudioScreen(vm: EditorViewModel, snack: SnackbarHostState) {
                     onRecord = { withMic { studio.startRecord() } },
                     onStop = { studio.stopRecord() },
                     onMonitor = { withMic { studio.toggleMonitor() } },
-                    onGuide = { studio.toggleGuide() },
+                    onInput = { studio.selectInput(it) },
+                    onOutput = { studio.selectOutput(it) },
                     onClearRange = { studio.clearRange() },
                 )
             } else {
@@ -241,7 +245,7 @@ private fun StudioTransport(
 @Composable
 private fun RecordTab(
     st: StudioState, visual: VisualState, now: String?, next: String?,
-    onRecord: () -> Unit, onStop: () -> Unit, onMonitor: () -> Unit, onGuide: () -> Unit, onClearRange: () -> Unit,
+    onRecord: () -> Unit, onStop: () -> Unit, onMonitor: () -> Unit, onInput: (Int?) -> Unit, onOutput: (Int?) -> Unit, onClearRange: () -> Unit,
 ) {
     Column(
         Modifier.verticalScroll(rememberScrollState()).padding(12.dp),
@@ -302,15 +306,44 @@ private fun RecordTab(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = st.monitor, onClick = onMonitor, enabled = st.phase == DubPhase.Idle,
-                label = { Text("Mic check") },
-            )
-            FilterChip(
-                selected = st.guide, onClick = onGuide, enabled = st.phase == DubPhase.Idle,
-                label = { Text("Guide audio (headphones)") },
-            )
+        FilterChip(
+            selected = st.monitor, onClick = onMonitor, enabled = st.phase == DubPhase.Idle,
+            label = { Text("Mic check") },
+        )
+        DevicePicker(
+            "Record from", st.inputId,
+            listOf<Pair<Int?, String>>(null to "Phone microphone (built-in)") + st.inputs.map { it.id to it.name },
+            st.phase == DubPhase.Idle, onInput,
+        )
+        DevicePicker(
+            "Hear the original audio on", st.outputId,
+            listOf<Pair<Int?, String>>(null to "Nowhere — original audio stays silent") + st.outputs.map { it.id to it.name },
+            true, onOutput,
+        )
+        Text(
+            "The video's own sound is always muted. Pick Bluetooth earphones or a headset above to hear the original while you dub; it is never played through the phone speaker, so it can't leak into your recording.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun DevicePicker(
+    title: String, selectedId: Int?, options: List<Pair<Int?, String>>, enabled: Boolean, onPick: (Int?) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val current = options.firstOrNull { it.first == selectedId }?.second ?: options.first().second
+    Column {
+        Text(title, style = MaterialTheme.typography.labelSmall)
+        Box {
+            OutlinedButton(onClick = { open = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+                Text(current, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                options.forEach { (id, name) ->
+                    DropdownMenuItem(text = { Text(name) }, onClick = { open = false; onPick(id) })
+                }
+            }
         }
     }
 }

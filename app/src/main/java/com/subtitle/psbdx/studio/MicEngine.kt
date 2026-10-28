@@ -1,6 +1,7 @@
 package com.subtitle.psbdx.studio
 
 import android.annotation.SuppressLint
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -15,7 +16,7 @@ class MicEngine(private val bandCount: Int, private val onFrame: (MicFrame) -> U
 
     /** Returns an error message, or null on success. [out] == null means monitor only. */
     @SuppressLint("MissingPermission")
-    fun start(out: File?): String? {
+    fun start(out: File?, device: AudioDeviceInfo? = null): String? {
         stop()
         val minBuf = AudioRecord.getMinBufferSize(Wav.SR, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minBuf <= 0) return "Microphone is not available"
@@ -31,6 +32,7 @@ class MicEngine(private val bandCount: Int, private val onFrame: (MicFrame) -> U
             rec.release()
             return "Could not open the microphone"
         }
+        if (device != null) rec.setPreferredDevice(device)
         val w = out?.let { Wav.Writer(it) }
         writer = w
         running = true

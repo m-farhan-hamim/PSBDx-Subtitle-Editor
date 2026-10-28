@@ -1,6 +1,7 @@
 package com.subtitle.psbdx.studio
 
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Process
@@ -129,6 +130,7 @@ class PlayEngine(
     private val original: Boolean,
     private val clips: Boolean,
     private val gate: Boolean,
+    private val device: AudioDeviceInfo?,
     private val onEnd: () -> Unit,
 ) {
     @Volatile private var running = false
@@ -164,6 +166,7 @@ class PlayEngine(
                 .setBufferSizeInBytes(max(minBuf, 16384))
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
+            if (device != null) track.setPreferredDevice(device)
             track.play()
             val buf = ShortArray(2048)
             var pos = startSample
