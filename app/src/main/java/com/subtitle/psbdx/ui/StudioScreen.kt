@@ -267,8 +267,6 @@ private fun RecordTab(
             }
         }
 
-        LiveVisualizer(visual)
-
         val a = st.inMs
         val b = st.outMs
         if (a != null && b != null) {
@@ -305,6 +303,8 @@ private fun RecordTab(
                 Button(onClick = onStop, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("■ Stop and keep take") }
             }
         }
+
+        LiveVisualizer(visual)
 
         FilterChip(
             selected = st.monitor, onClick = onMonitor, enabled = st.phase == DubPhase.Idle,
