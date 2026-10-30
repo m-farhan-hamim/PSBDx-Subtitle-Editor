@@ -600,10 +600,12 @@ class StudioController(
         commit { it.copy(mutes = subtractRange(it.mutes, a, b)) }
     }
 
+    /** Splits the selected clip at the playhead, or whichever dub clip is under the playhead. */
     fun splitAtPlayhead() {
-        val c = selected() ?: return
         val p = pos()
-        if (p <= c.startMs + 50 || p >= c.startMs + c.durMs - 50) { say("Move the playhead inside the selected clip"); return }
+        val inside = { cl: Clip -> p > cl.startMs + 50 && p < cl.startMs + cl.durMs - 50 }
+        val c = selected()?.takeIf(inside) ?: _state.value.clips.lastOrNull(inside)
+        if (c == null) { say("Move the playhead over a dub clip to split it"); return }
         val second = c.copy(id = nextClipId++, startMs = p, srcStartMs = c.srcStartMs + (p - c.startMs), durMs = c.startMs + c.durMs - p)
         val first = c.copy(durMs = p - c.startMs)
         commit { s -> s.copy(clips = s.clips.flatMap { if (it.id == c.id) listOf(first, second) else listOf(it) }, selClip = second.id) }
@@ -642,6 +644,29 @@ class StudioController(
     fun nudge(deltaMs: Long) {
         val c = selected() ?: return
         updateClip(c.id) { it.copy(startMs = max(0, it.startMs + deltaMs)) }
+    }
+
+    /**
+     * Delete: removes the selected clip. With no clip selected it deletes the In..Out range instead:
+     * dub clips are cut (the parts outside the range are kept) and the original is silenced there.
+     */
+    fun deleteSelectionOrRange() {
+        if (selected() != null) { deleteSelected(); return }
+        val s = _state.value
+        val a = s.inMs
+        val b = s.outMs
+        if (a == null || b == null) { say("Select a clip, or set an In and Out range to delete"); return }
+        val pieces = s.clips.flatMap { cutClip(it, a, b) }.filter { it.durMs >= 50 }
+        commit { it.copy(clips = pieces, mutes = mergeRanges(it.mutes + MsRange(a, b)), selClip = null) }
+    }
+
+    private fun cutClip(c: Clip, a: Long, b: Long): List<Clip> {
+        val end = c.startMs + c.durMs
+        if (end <= a || c.startMs >= b) return listOf(c)
+        val out = mutableListOf<Clip>()
+        if (c.startMs < a) out += c.copy(durMs = a - c.startMs)
+        if (end > b) out += c.copy(id = nextClipId++, startMs = b, srcStartMs = c.srcStartMs + (b - c.startMs), durMs = end - b)
+        return out
     }
 
     fun deleteSelected() {

@@ -364,6 +364,8 @@ private fun EditTab(
     var follow by remember { mutableStateOf(true) }
     val sel = st.clips.firstOrNull { it.id == st.selClip }
     val hasRange = st.inMs != null && st.outMs != null
+    val canSplit = st.clips.any { pos > it.startMs + 50 && pos < it.startMs + it.durMs - 50 }
+    val canDelete = sel != null || hasRange
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Timeline(
@@ -374,6 +376,27 @@ private fun EditTab(
         )
         Text(
             "Tap to move the playhead or pick a clip. Pinch to zoom, drag to scroll. Red = muted original, dimmed = replaced by a dub clip.",
+            style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 12.dp),
+        )
+
+        Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { studio.splitAtPlayhead() },
+                enabled = canSplit && !busy,
+                modifier = Modifier.weight(1f),
+            ) { Text("✂ Split at playhead") }
+            Button(
+                onClick = { studio.deleteSelectionOrRange() },
+                enabled = canDelete && !busy,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+                modifier = Modifier.weight(1f),
+            ) { Text(if (sel != null) "Delete clip" else "Delete range") }
+        }
+        Text(
+            "Split cuts the clip under the playhead in two. Delete removes the selected clip; with nothing selected it deletes the In–Out range (dub clips are cut there and the original is silenced). Undo reverses either.",
             style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 12.dp),
         )
 
@@ -409,14 +432,12 @@ private fun EditTab(
                         style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface,
                     )
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ToolButton("Split", !busy) { studio.splitAtPlayhead() }
                         ToolButton("Trim start", !busy) { studio.trimStartToPlayhead() }
                         ToolButton("Trim end", !busy) { studio.trimEndToPlayhead() }
                         ToolButton("Fit to range", hasRange && !busy) { studio.fitToRange() }
                         ToolButton("Move to playhead", !busy) { studio.moveToPlayhead() }
                         ToolButton("◀ 100ms", !busy) { studio.nudge(-100) }
                         ToolButton("100ms ▶", !busy) { studio.nudge(100) }
-                        OutlinedButton(onClick = { studio.deleteSelected() }, enabled = !busy) { Text("Delete") }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Replace original under this clip", modifier = Modifier.weight(1f))
